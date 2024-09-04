@@ -1,0 +1,143 @@
+---
+  - name: Manage Current Backup Files on DiskStation
+    tags: always
+    hosts: diskstation
+    gather_facts: yes
+    vars:
+      source_dir: /volume1/Home\ Media/Backup/Win10-Gaming
+      files:
+        - vdisk1.bk.img
+        - vdisk2.bk.img
+      old_files:
+        - vdisk1.bk.img.old
+        - vdisk2.bk.img.old
+
+    tasks:
+      - name: Check if 'OLD' Backup Files exist
+        stat: 
+          path: "/volume1/Home\ Media/Backup/Win10-Gaming/{{ item }}"
+          get_checksum: False
+          get_md5: False
+        with_items: "{{ old_files }}"
+        register: check_file_name_old
+
+      - name: Delete OLD backup files
+        command: rm {{source_dir}}/{{item.item}}
+        with_items: "{{ check_file_name_old.results }}"
+        when: item.stat.exists
+
+      - name: Check if current Backup files exist
+        stat: 
+          path: "/volume1/Home\ Media/Backup/Win10-Gaming/{{ item }}"
+          get_checksum: False
+          get_md5: False
+        with_items: "{{ files }}"
+        register: check_file_name
+
+      - name: Rename current backup files to OLD
+        command: mv {{source_dir}}/{{item.item}} {{source_dir}}/{{item.item}}.old
+        with_items: "{{ check_file_name.results }}"
+        when: item.stat.exists
+
+  - name: Unraid Backup Tasks
+    hosts: unraid
+    gather_facts: yes
+    #vars:
+      
+    tasks:
+      - name: Shutdown Gaming VM
+        command: virsh shutdown Win10-Gaming
+        tags: always
+
+      - name: Get Gaming VM status
+        shell: virsh list --all | grep " Win10-Gaming " | awk '{ print $3}'
+        args:
+          warn: no
+        register: cmd_res
+        retries: 5
+        delay: 10
+        until: cmd_res.stdout != 'running'
+        tags: always
+      
+      - name: HD1 Task Block
+        block:
+        - name: Create reflink for HD1
+          command: cp --reflink vdisk1.img vdisk1.bk.img
+          args:
+            chdir: /mnt/cache/domains/Win10_Gaming
+
+        - name: Check if HD1 reflink exists
+          stat: 
+            path: /mnt/cache/domains/Win10_Gaming/vdisk1.bk.img
+            get_checksum: False
+            get_md5: False
+          register: check_reflink_hd1
+
+        - name: Backup HD1 to DiskStation
+          command: rsync vdisk1.bk.img /mnt/remotes/192.168.101.113_Home\ Media/Backup/Win10-Gaming
+          args:
+            chdir: /mnt/cache/domains/Win10_Gaming
+          when: check_reflink_hd1.stat.exists
+
+        - name: Delete HD1 reflink file
+          command: rm /mnt/cache/domains/Win10_Gaming/vdisk1.bk.img
+          when: check_reflink_hd1.stat.exists
+
+        when: cmd_res.stdout != 'running'
+        tags: hd1
+
+
+      - name: HD2 Task Block
+        block:
+        - name: Create reflink for HD2
+          command: cp --reflink vdisk2.img vdisk2.bk.img
+          args:
+            chdir: /mnt/disk1/domains/Win10_Gaming
+
+        - name: Check if HD2 reflink exists
+          stat: 
+            path: /mnt/disk1/domains/Win10_Gaming/vdisk2.bk.img
+            get_checksum: False
+            get_md5: False
+          register: check_reflink_hd2
+
+        - name: Backup HD2 to DiskStation
+          command: rsync vdisk2.bk.img /mnt/remotes/192.168.101.113_Home\ Media/Backup/Win10-Gaming
+          args:
+            chdir: /mnt/disk1/domains/Win10_Gaming
+          when: check_reflink_hd2.stat.exists
+
+        - name: Delete HD2 reflink file
+          command: rm /mnt/disk1/domains/Win10_Gaming/vdisk2.bk.img
+          when: check_reflink_hd2.stat.exists
+
+        when: cmd_res.stdout != 'running'
+        tags: hd2
+
+      - name: Start Gaming VM
+        command: virsh start Win10-Gaming
+        tags: always
+
+  
+  - name: Clean-up on DiskStation
+    tags: always
+    hosts: diskstation
+    gather_facts: no
+    vars:
+      source_dir: /volume1/Home\ Media/Backup/Win10-Gaming
+      files:
+        - vdisk1.bk.img.old
+        - vdisk2.bk.img.old
+    tasks:
+      - name: Check if 'OLD' Backup Files exist
+        stat: 
+          path: "/volume1/Home\ Media/Backup/Win10-Gaming/{{ item }}"
+          get_checksum: False
+          get_md5: False
+        with_items: "{{ files }}"
+        register: check_file_name
+
+      - name: Delete OLD backup files
+        command: rm {{source_dir}}/{{item.item}}
+        with_items: "{{ check_file_name.results }}"
+        when: item.stat.exists
