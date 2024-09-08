@@ -1,0 +1,43 @@
+---
+- name: Snapshot Creation Task Block
+  block:
+  
+  # - name: Show Shutdown VMs
+  #   debug:
+  #     msg: "Taking a snapshot of {{ item[1]['disk_name'] }} on VM {{ item[0]['vm_name'] }} "
+
+  # - name: Show Disk Name
+  #   debug:
+  #     msg: " {{ item[1]['disk_name'][:-4] }}.{{ ansible_date_time.iso8601}}.img "
+  
+  - name: Create snapshot image filename
+    set_fact:
+      snapshot_filename: "{{ item[1]['disk_name'][:-4] }}.{{ ansible_date_time.iso8601|replace(':', '.')}}.img"
+
+  - name: Create reflink for {{ item[0]['vm_name'] }}
+    command: cp --reflink {{ item[1]['disk_name'] }} {{ snapshot_filename }}
+    args:
+      chdir: "{{ item[1]['source_directory'] }}/{{ item[0]['vm_name'] }}"
+
+  - name: Check if reflink exists
+    stat: 
+      path: "{{ item[1]['source_directory'] }}/{{ item[0]['vm_name'] }}/{{ snapshot_filename }}"
+      get_checksum: False
+    register: check_reflink_hd1
+
+  - name: Create a VM specific snaphot directory if it doesn't exist
+    ansible.builtin.file:
+      path: "{{ item[1]['source_directory'] }}/{{ item[0]['vm_name'] }}"
+      state: directory
+      mode: '0755'
+
+  - name: Backup HD1 to DiskStation
+    command: rsync --progress {{ snapshot_filename }} {{ inventory_hostname }}@{{ hostvars['diskstation']['ansible_host'] }}:/{{ destination_directory }}/{{ item[0]['vm_name'] }}/
+    args:
+      chdir: "{{ item[1]['source_directory'] }}/{{ item[0]['vm_name'] }}"
+    when: check_reflink_hd1.stat.exists
+
+  - name: Delete reflink file
+    command: rm "{{ item[1]['source_directory'] }}/{{ item[0]['vm_name'] }}/{{ snapshot_filename }}"
+    when: check_reflink_hd1.stat.exists
+  

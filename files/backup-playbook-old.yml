@@ -1,0 +1,53 @@
+- name: Unraid Snapshot Creation Tasks
+  hosts: unraid
+  #remote_user: root
+  gather_facts: yes
+  vars:
+    needs_shutdown: []
+    confirmed_shutdown: []
+    vms_map: "{{ snapshot_create_list | map(attribute='vm_name') }}"
+    disks_map: "{{ snapshot_create_list | map(attribute='disks_to_snapshot') }}"
+    snapshot_data_map: "{{ dict(vms_map | zip(disks_map)) | dict2items(key_name='vm_name', value_name='disks_to_snapshot') | subelements('disks_to_snapshot') }}"
+  vars_files:
+    - ./vars/variables.yml
+    
+  tasks:
+    - name: Get initial VM status
+      shell: virsh list --all | grep " {{ item.vm_name }} " | awk '{ print $3}'
+      register: cmd_res
+      tags: always
+      with_items: " {{ snapshot_create_list }} "
+
+    - name: Create list of VMs that need shutdown
+      set_fact:
+        needs_shutdown: "{{ needs_shutdown + [item.item.vm_name] }}"
+      when: item.stdout != 'shut'
+      with_items: " {{ cmd_res.results }} "
+    
+    - name: Shutdown VM(s)
+      include_tasks: ./tasks/shutdown-vm.yml
+      loop: "{{ needs_shutdown }}"
+      when: needs_shutdown
+
+    - name: Get VM status
+      shell: virsh list --all | grep " {{ item.vm_name }} " | awk '{ print $3}'
+      register: cmd_res
+      tags: always
+      with_items: " {{ snapshot_create_list }} "
+
+    - name: Create list to use for confirmation of VMs being shutdown
+      set_fact:
+        confirmed_shutdown: "{{ confirmed_shutdown + [item.item.vm_name] }}"
+      when: item.stdout == 'shut'
+      with_items: " {{ cmd_res.results }} "
+
+    # - name: Show stuff
+    #   debug:
+    #     msg: "{{ snapshot_data_map }}"
+    
+    - name: Create and push snapshot(s)
+      include_tasks: ./tasks/snapshot-creation.yml
+      loop: "{{ snapshot_data_map }}"
+      when: snapshot_create_list
+
+    

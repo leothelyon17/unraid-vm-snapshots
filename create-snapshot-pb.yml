@@ -1,0 +1,98 @@
+- name: Unraid Snapshot Creation Prep
+  hosts: unraid
+  gather_facts: yes
+  vars:
+    needs_shutdown: []
+    confirmed_shutdown: []
+    vms_map: "{{ snapshot_create_list | map(attribute='vm_name') }}"
+    disks_map: "{{ snapshot_create_list | map(attribute='disks_to_snapshot') }}"
+    snapshot_data_map: "{{ dict(vms_map | zip(disks_map)) | dict2items(key_name='vm_name', value_name='disks_to_snapshot') | subelements('disks_to_snapshot') }}"
+  vars_files:
+    - ./vars/variables.yml
+    
+  tasks:
+    - name: Get initial VM status
+      shell: virsh list --all | grep "{{ item.vm_name }}" | awk '{ print $3}'
+      register: cmd_res
+      tags: always
+      with_items: "{{ snapshot_create_list }}"
+
+    - name: Create list of VMs that need shutdown
+      set_fact:
+        needs_shutdown: "{{ needs_shutdown + [item.item.vm_name] }}"
+      when: item.stdout != 'shut'
+      with_items: "{{ cmd_res.results }}"
+    
+    - name: Shutdown VM(s)
+      include_tasks: ./tasks/shutdown-vm.yml
+      loop: "{{ needs_shutdown }}"
+      when: needs_shutdown
+
+    - name: Get VM status
+      shell: virsh list --all | grep "{{ item.vm_name }}" | awk '{ print $3}'
+      register: cmd_res
+      tags: always
+      with_items: "{{ snapshot_create_list }}"
+
+    - name: Create list to use for confirmation of VMs being shutdown
+      set_fact:
+        confirmed_shutdown: "{{ confirmed_shutdown + [item.item.vm_name] }}"
+      when: item.stdout == 'shut'
+      with_items: "{{ cmd_res.results }}"
+    
+    - name: Add host to group 'disks' with variables
+      ansible.builtin.add_host:
+        name: "{{ item[0]['vm_name'] }}-{{ item[1]['disk_name'][:-4] }}"
+        groups: disks
+        vm_name: "{{ item[0]['vm_name'] }}"
+        disk_name: "{{ item[1]['disk_name'] }}"
+        source_directory: "{{ item[1]['source_directory'] }}"
+      loop: "{{ snapshot_data_map }}"
+    
+
+- name: Unraid Snapshot Creation
+  hosts: disks
+  gather_facts: no
+  vars_files:
+    - ./vars/variables.yml
+    
+  tasks:
+    - name: Snapshot Creation Task Block
+      block:
+        - setup:
+            gather_subset:
+              - 'min'
+          delegate_to: unraid
+
+        - name: Create snapshot image filename
+          set_fact:
+            snapshot_filename: "{{ disk_name[:-4] }}.{{ ansible_date_time.iso8601|replace(':', '.')}}.img"
+          delegate_to: unraid
+
+        - name: Create reflink for {{ vm_name }}
+          command: cp --reflink {{ disk_name }} {{ snapshot_filename }}
+          args:
+            chdir: "{{ source_directory }}/{{ vm_name }}"
+          delegate_to: unraid
+
+        - name: Check if reflink exists
+          stat: 
+            path: "{{ source_directory }}/{{ vm_name }}/{{ snapshot_filename }}"
+            get_checksum: False
+          register: check_reflink_hd
+          delegate_to: unraid
+
+        - name: Backup HD1 to DiskStation
+          command: rsync --progress {{ snapshot_filename }} {{ destination_user }}@{{ hostvars['diskstation']['ansible_host'] }}:/{{ destination_directory }}/{{ vm_name }}/
+          args:
+            chdir: "{{ source_directory }}/{{ vm_name }}"
+          when: check_reflink_hd.stat.exists
+          delegate_to: unraid
+
+        - name: Delete reflink file
+          command: rm "{{ source_directory }}/{{ vm_name }}/{{ snapshot_filename }}"
+          when: check_reflink_hd.stat.exists
+          delegate_to: unraid
+      
+      when: vm_name in hostvars['unraid']['confirmed_shutdown']
+    

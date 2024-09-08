@@ -1,0 +1,13 @@
+---
+destination_directory: volume1/Home\ Media/Backup
+destination_user: unraid
+
+snapshot_create_list:
+  - vm_name: Rocky9-TESTNode
+    disks_to_snapshot:
+      - disk_name: vdisk1.img
+        source_directory: /mnt/cache/domains
+  - vm_name: Rocky9-LabNode3
+    disks_to_snapshot:
+      - disk_name: vdisk1.img
+        source_directory: /mnt/cache/domains

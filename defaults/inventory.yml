@@ -1,0 +1,11 @@
+---
+nodes:
+  hosts:
+    diskstation:
+      ansible_host: "{{ lookup('env', 'DISKSTATION_IP_ADDRESS') }}"
+      ansible_user: "{{ lookup('env', 'DISKSTATION_USER') }}"
+      ansible_password: "{{ lookup('env', 'DISKSTATION_PASS') }}"
+    unraid:
+      ansible_host: "{{ lookup('env', 'UNRAID_IP_ADDRESS') }}"
+      ansible_user: "{{ lookup('env', 'UNRAID_USER') }}"
+      ansible_password: "{{ lookup('env', 'UNRAID_PASS') }}"
