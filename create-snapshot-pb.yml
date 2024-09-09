@@ -82,7 +82,7 @@
           register: check_reflink_hd
           delegate_to: unraid
 
-        - name: Backup HD1 to DiskStation
+        - name: Backup HD(s) to DiskStation
           command: rsync --progress {{ snapshot_filename }} {{ destination_user }}@{{ hostvars['diskstation']['ansible_host'] }}:/{{ destination_directory }}/{{ vm_name }}/
           args:
             chdir: "{{ source_directory }}/{{ vm_name }}"
