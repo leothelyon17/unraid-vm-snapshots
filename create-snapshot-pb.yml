@@ -1,6 +1,6 @@
 - name: Unraid Snapshot Creation Prep
   hosts: unraid
-  gather_facts: yes
+  gather_facts: no
   vars:
     needs_shutdown: []
     confirmed_shutdown: []
@@ -11,6 +11,7 @@
     - ./vars/snapshot-creation-vars.yml
     
   tasks:
+    
     - name: Get initial VM status
       shell: virsh list --all | grep "{{ item.vm_name }}" | awk '{ print $3}'
       register: cmd_res
@@ -47,6 +48,7 @@
         vm_name: "{{ item[0]['vm_name'] }}"
         disk_name: "{{ item[1]['disk_name'] }}"
         source_directory: "{{ item[1]['source_directory'] }}"
+        desired_snapshot_name: "{{ item[1]['desired_snapshot_name'] }}"
       loop: "{{ snapshot_data_map }}"
     
 
@@ -66,7 +68,19 @@
 
         - name: Create snapshot image filename
           set_fact:
+            snapshot_filename: "{{ disk_name[:-4] }}.{{ desired_snapshot_name | regex_replace('\\-', '_') | regex_replace('\\W', '') }}.img"
+          delegate_to: unraid
+          when: desired_snapshot_name is defined and desired_snapshot_name != None
+
+        - name: Create snapshot image filename with default date/time if necessary
+          set_fact:
             snapshot_filename: "{{ disk_name[:-4] }}.{{ ansible_date_time.iso8601|replace(':', '.')}}.img"
+          delegate_to: unraid
+          when: desired_snapshot_name is not defined or desired_snapshot_name == None
+
+        - name: Print Variable
+          debug:
+            msg: "{{ snapshot_filename }}"
           delegate_to: unraid
 
         - name: Create reflink for {{ vm_name }}
@@ -93,6 +107,12 @@
           command: rm "{{ source_directory }}/{{ vm_name }}/{{ snapshot_filename }}"
           when: check_reflink_hd.stat.exists
           delegate_to: unraid
+
+        - name: Start VM following snapshot transfer
+          command: virsh start {{ vm_name }}
+          tags: always
+          delegate_to: unraid
+
       
       when: vm_name in hostvars['unraid']['confirmed_shutdown']
     

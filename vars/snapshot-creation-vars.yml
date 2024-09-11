@@ -7,8 +7,8 @@ snapshot_create_list:
     disks_to_snapshot:
       - disk_name: vdisk1.img
         source_directory: /mnt/cache/domains
-        desired_snaphot_name: work?ing-Test-name#%
-  - vm_name: Rocky9-LabNode3
-    disks_to_snapshot:
-      - disk_name: vdisk1.img
-        source_directory: /mnt/nvme_cache/domains
+        desired_snapshot_name: kuberne&<tes-baseline*%
+  # - vm_name: Rocky9-LabNode3
+  #   disks_to_snapshot:
+  #     - disk_name: vdisk1.img
+  #       source_directory: /mnt/nvme_cache/domains
