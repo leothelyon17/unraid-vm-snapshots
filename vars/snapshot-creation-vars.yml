@@ -7,8 +7,7 @@ snapshot_create_list:
     disks_to_snapshot:
       - disk_name: vdisk1.img
         source_directory: /mnt/cache/domains
-      - disk_name: vdisk2.img
-        source_directory: /mnt/cache/domains
+        desired_snaphot_name: work?ing-Test-name#%
   - vm_name: Rocky9-LabNode3
     disks_to_snapshot:
       - disk_name: vdisk1.img

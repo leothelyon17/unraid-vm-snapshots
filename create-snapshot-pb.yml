@@ -8,7 +8,7 @@
     disks_map: "{{ snapshot_create_list | map(attribute='disks_to_snapshot') }}"
     snapshot_data_map: "{{ dict(vms_map | zip(disks_map)) | dict2items(key_name='vm_name', value_name='disks_to_snapshot') | subelements('disks_to_snapshot') }}"
   vars_files:
-    - ./vars/variables.yml
+    - ./vars/snapshot-creation-vars.yml
     
   tasks:
     - name: Get initial VM status
@@ -54,7 +54,7 @@
   hosts: disks
   gather_facts: no
   vars_files:
-    - ./vars/variables.yml
+    - ./vars/snapshot-creation-vars.yml
     
   tasks:
     - name: Snapshot Creation Task Block

@@ -1,0 +1,26 @@
+- name: Tests and Debugs
+  hosts: unraid
+  gather_facts: yes
+  vars:
+    test_snapshot_name:
+  vars_files:
+    - ../vars/snapshot-creation-vars.yml
+    
+  
+  tasks:
+    - name: Create snapshot image filename
+      set_fact:
+        snapshot_filename: "{{ test_snapshot_name | regex_replace('\\-', '_') | regex_replace('\\W', '') }}"
+      delegate_to: localhost
+      when: test_snapshot_name is defined and test_snapshot_name != None
+
+    - name: Create snapshot image filename2
+      set_fact:
+        snapshot_filename: "{{ ansible_date_time.iso8601 | replace(':', '.') }}"
+      delegate_to: localhost
+      when: test_snapshot_name is not defined or test_snapshot_name == None
+    
+    - name: Print Variable
+      debug:
+        msg: "{{ snapshot_filename }}"
+      delegate_to: localhost
