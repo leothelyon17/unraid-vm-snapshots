@@ -1,6 +1,6 @@
 - name: Unraid Snapshot Creation Prep
   hosts: unraid
-  gather_facts: no
+  gather_facts: yes
   vars:
     needs_shutdown: []
     confirmed_shutdown: []
@@ -48,7 +48,7 @@
         vm_name: "{{ item[0]['vm_name'] }}"
         disk_name: "{{ item[1]['disk_name'] }}"
         source_directory: "{{ item[1]['source_directory'] }}"
-        desired_snapshot_name: "{{ item[1]['desired_snapshot_name'] }}"
+        desired_snapshot_name: "{{ item[1]['snapshot_to_restore_from'] }}"
       loop: "{{ snapshot_data_map }}"
     
 
@@ -77,11 +77,6 @@
             snapshot_filename: "{{ disk_name[:-4] }}.{{ ansible_date_time.iso8601|replace(':', '.')}}.img"
           delegate_to: unraid
           when: desired_snapshot_name is not defined or desired_snapshot_name == None
-
-        - name: Print Variable
-          debug:
-            msg: "{{ snapshot_filename }}"
-          delegate_to: unraid
 
         - name: Create reflink for {{ vm_name }}
           command: cp --reflink {{ disk_name }} {{ snapshot_filename }}

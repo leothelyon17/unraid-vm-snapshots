@@ -1,0 +1,22 @@
+- name: Start VMs Block
+  block:
+
+  - name: Start VM - {{ item.vm_name }}
+    command: virsh start {{ item.vm_name }}
+    ignore_errors: true
+
+  - name: Get VM status - {{ item.vm_name }}
+    shell: virsh list --all | grep {{ item.vm_name }} | awk '{ print $3}'
+    register: cmd_res
+    retries: 5
+    delay: 10
+    until: cmd_res.stdout == 'running'
+
+  - name: Ensure VM 'running' status
+    assert:
+      that:
+        - cmd_res.stdout == 'running'
+      fail_msg: "{{ item.vm_name }} failed to start. Disk may be corrupt."
+      success_msg: "{{ item.vm_name }} has successfully started. Restore from snapshot complete."
+
+  delegate_to: unraid
