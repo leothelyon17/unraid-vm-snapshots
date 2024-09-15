@@ -8,9 +8,10 @@
     disks_map: "{{ snapshot_create_list | map(attribute='disks_to_snapshot') }}"
     snapshot_data_map: "{{ dict(vms_map | zip(disks_map)) | dict2items(key_name='vm_name', value_name='disks_to_snapshot') | subelements('disks_to_snapshot') }}"
   vars_files:
-    - ./vars/variables.yml
+    - ./vars/snapshot-creation-vars.yml
     
   tasks:
+      
     - name: Get initial VM status
       shell: virsh list --all | grep "{{ item.vm_name }}" | awk '{ print $3}'
       register: cmd_res
@@ -21,11 +22,13 @@
       set_fact:
         needs_shutdown: "{{ needs_shutdown + [item.item.vm_name] }}"
       when: item.stdout != 'shut'
+      tags: always
       with_items: "{{ cmd_res.results }}"
     
     - name: Shutdown VM(s)
       include_tasks: ./tasks/shutdown-vm.yml
       loop: "{{ needs_shutdown }}"
+      tags: always
       when: needs_shutdown
 
     - name: Get VM status
@@ -38,6 +41,7 @@
       set_fact:
         confirmed_shutdown: "{{ confirmed_shutdown + [item.item.vm_name] }}"
       when: item.stdout == 'shut'
+      tags: always
       with_items: "{{ cmd_res.results }}"
     
     - name: Add host to group 'disks' with variables
@@ -47,6 +51,8 @@
         vm_name: "{{ item[0]['vm_name'] }}"
         disk_name: "{{ item[1]['disk_name'] }}"
         source_directory: "{{ item[1]['source_directory'] }}"
+        desired_snapshot_name: "{{ item[1]['desired_snapshot_name'] | default('') }}"
+      tags: always
       loop: "{{ snapshot_data_map }}"
     
 
@@ -54,7 +60,7 @@
   hosts: disks
   gather_facts: no
   vars_files:
-    - ./vars/variables.yml
+    - ./vars/snapshot-creation-vars.yml
     
   tasks:
     - name: Snapshot Creation Task Block
@@ -66,11 +72,22 @@
 
         - name: Create snapshot image filename
           set_fact:
+            snapshot_filename: "{{ disk_name[:-4] }}.{{ desired_snapshot_name | regex_replace('\\-', '_') | regex_replace('\\W', '') }}.img"
+          delegate_to: unraid
+          when: desired_snapshot_name is defined and desired_snapshot_name | length > 0
+
+        - name: Create snapshot image filename with default date/time if necessary
+          set_fact:
             snapshot_filename: "{{ disk_name[:-4] }}.{{ ansible_date_time.iso8601|replace(':', '.')}}.img"
           delegate_to: unraid
+          when: desired_snapshot_name is not defined or desired_snapshot_name | length == 0
+
+        - name: Show file name
+          debug:
+            msg: "{{ snapshot_filename }}"
 
         - name: Create reflink for {{ vm_name }}
-          command: cp --reflink {{ disk_name }} {{ snapshot_filename }}
+          command: cp --reflink -rf {{ disk_name }} {{ snapshot_filename }}
           args:
             chdir: "{{ source_directory }}/{{ vm_name }}"
           delegate_to: unraid
@@ -83,16 +100,33 @@
           delegate_to: unraid
 
         - name: Backup HD(s) to DiskStation
-          command: rsync --progress {{ snapshot_filename }} {{ destination_user }}@{{ hostvars['diskstation']['ansible_host'] }}:/{{ destination_directory }}/{{ vm_name }}/
+          command: rsync --progress {{ snapshot_filename }} {{ repository_user }}@{{ hostvars['diskstation']['ansible_host'] }}:/{{ snapshot_repository_base_directory }}/{{ vm_name }}/
+          args:
+            chdir: "{{ source_directory }}/{{ vm_name }}"
+          when: check_reflink_hd.stat.exists and 'use_local' not in ansible_run_tags
+          delegate_to: unraid
+        
+        - name: Backup HD(s) to Local VM Folder as .tar
+          command: tar cf {{ snapshot_filename }}.tar {{ snapshot_filename }}
           args:
             chdir: "{{ source_directory }}/{{ vm_name }}"
           when: check_reflink_hd.stat.exists
+          tags: 
+            - use_local
+            - never
           delegate_to: unraid
 
         - name: Delete reflink file
           command: rm "{{ source_directory }}/{{ vm_name }}/{{ snapshot_filename }}"
           when: check_reflink_hd.stat.exists
           delegate_to: unraid
+
+        - name: Start VM following snapshot transfer
+          command: virsh start {{ vm_name }}
+          tags: always
+          delegate_to: unraid
+
       
       when: vm_name in hostvars['unraid']['confirmed_shutdown']
+      tags: always
     

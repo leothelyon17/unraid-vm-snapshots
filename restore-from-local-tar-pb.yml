@@ -1,0 +1,157 @@
+- name: Restore Snapshot Preparation
+  hosts: unraid
+  gather_facts: no
+  vars_files:
+    - ./vars/snapshot-restore-vars.yml
+    
+  tasks:
+    - name: Retrieve List of All Existing VMs on UnRAID Hypervisor
+      shell: virsh list --all | tail -n +3 | awk '{ print $2}'
+      register: hypervisor_existing_vm_list
+
+    - name: Generate VM and Disk Lists for Validated VMs in User Inputted Data
+      set_fact: 
+        vms_map: "{{ snapshot_restore_list | map(attribute='vm_name') }}"
+        disks_map: "{{ snapshot_restore_list | map(attribute='disks_to_restore') }}"
+      when: item.vm_name in hypervisor_existing_vm_list.stdout_lines
+      with_items: "{{ snapshot_restore_list }}"
+
+    - name: Build Data Structure for Snapshot Restoration
+      set_fact: 
+        snapshot_data_map: "{{ dict(vms_map | zip(disks_map)) | dict2items(key_name='vm_name', value_name='disks_to_restore') | subelements('disks_to_restore') }}"
+        
+    - name: Verify Snapshot Data is Available for Restoration
+      assert:
+        that:
+          - snapshot_data_map
+        fail_msg: "Restore operation failed. Not enough data to proceed."
+    
+    - name: Dynamically Create Host Group for Disks to be Restored
+      ansible.builtin.add_host:
+        name: "{{ item[0]['vm_name'] }}-{{ item[1]['vm_disk_to_restore'][:-4] }}"
+        groups: disks
+        vm_name: "{{ item[0]['vm_name'] }}"
+        disk_name: "{{ item[1]['vm_disk_to_restore'] }}"
+        source_directory: "{{ item[1]['vm_disk_directory'] }}"
+        snapshot_to_restore_from: "{{ item[1]['snapshot_to_restore_from'] | default('latest') }}"
+      loop: "{{ snapshot_data_map }}"
+
+
+- name: Disk Restore From Snapshot
+  hosts: disks
+  gather_facts: no
+  vars_files:
+    - ./vars/snapshot-restore-vars.yml
+    
+  tasks:
+
+    - name: Find files in the VM folder containing the target VM disk name
+      find:
+        paths: "/{{ source_directory | regex_replace('\\\\', '')}}/{{ vm_name }}/"
+        patterns: "*{{ disk_name[:-4] }}*"
+        recurse: yes
+      register: found_files 
+      delegate_to: unraid
+
+    - name: Filter files matching patterns for .tar files
+      set_fact:
+        matched_tar_files: "{{ found_files.files | selectattr('path', 'search', '.*\\.(tar)$') | list }}"
+
+
+    - name: Ensure that files were found
+      assert:
+        that:
+          - matched_tar_files | length > 0
+        fail_msg: "No files found matching disk {{ disk_name[:-4] }} for VM {{ vm_name }}."
+
+    - name: Create a file list from the target VM folder with only file names
+      set_fact: 
+        file_list: "{{ matched_tar_files | map(attribute='path') | map('regex_replace','^.*/(.*)$','\\1') | list }}"
+
+    - name: Stitch together full snapshot name
+      set_fact: 
+        full_snapshot_name: "{{ disk_name[:-4] }}.{{ snapshot_to_restore_from | regex_replace('\\-', '_') | regex_replace('\\W', '') }}.img"
+
+    - name: Find and set correct snapshot if file found in snapshot folder
+      set_fact: 
+        found_snapshot: "{{ full_snapshot_name }}"
+      when: full_snapshot_name in file_list
+
+    - name: Find and set snapshot to latest if undefined or error handle block
+      block:
+        
+        - name: Sort found files by modification time (newest first) - LATEST Block
+          set_fact:
+            sorted_files: "{{ matched_tar_files | sort(attribute='mtime', reverse=True) | map(attribute='path') | map('regex_replace','^.*/(.*)$','\\1') | list  }}"
+
+        - name: Find and set correct snapshot for newest found .img file - LATEST Block
+          set_fact: 
+            found_snapshot: "{{ sorted_files | first }}"
+      
+      when: found_snapshot is undefined or found_snapshot == None  
+
+    - name: Ensure that the desired snapshot file was found
+      assert:
+        that:
+          - found_snapshot is defined and found_snapshot != None
+        fail_msg: "The snapshot to restore was not found. May not exist or user date was entered incorrectly."
+        success_msg: "Snapshot found! Will begin restore process NOW."
+
+    - name: Show Stuff
+      debug:
+        msg: "{{ found_snapshot }}"
+
+    - name: Unzip .tar file
+      command: tar -xf {{ found_snapshot }}
+      args:
+        chdir: "{{ source_directory }}/{{ vm_name }}"
+      delegate_to: unraid
+
+    - name: Get attributes of unzipped .img file
+      stat:
+        path: "{{ source_directory }}/{{ vm_name }}/{{ found_snapshot[:-4] }}"
+        get_checksum: false
+      register: file1
+      delegate_to: unraid
+
+    - name: Get attributes of original disk .img file
+      stat:
+        path: "{{ source_directory }}/{{ vm_name }}/{{ disk_name }}"
+        get_checksum: false
+      register: file2
+      delegate_to: unraid
+
+    - name: Ensure original and tranferred file sizes are the same
+      assert:
+        that:
+          - file1.stat.size == file2.stat.size
+        fail_msg: "Files failed size comparison post transfer. Aborting operation for {{ inventory_hostname }}"
+        success_msg: File size comparison passed.
+
+    - name: Shutdown VM(s)
+      include_tasks: ./tasks/shutdown-vm.yml
+      loop: "{{ hostvars['unraid']['vms_map'] }}"
+
+    - name: Delete {{ disk_name }} for VM {{ vm_name }}
+      ansible.builtin.file:
+        path: "{{ source_directory }}/{{ vm_name }}/{{ disk_name }}"
+        state: absent
+      delegate_to: unraid
+
+    - name: Rename unzipped snapshot to proper disk name
+      command: mv {{ found_snapshot[:-4] }} {{ disk_name }}
+      args:
+        chdir: "{{ source_directory }}/{{ vm_name }}"
+      delegate_to: unraid
+
+- name: Restart Affected VMs
+  hosts: unraid
+  gather_facts: no
+  vars_files:
+    - ./vars/snapshot-restore-vars.yml
+    
+  tasks:
+    - name: Start VM(s) back up
+      include_tasks: ./tasks/start-vm.yml
+      loop: "{{ snapshot_restore_list }}"
+    

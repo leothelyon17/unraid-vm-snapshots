@@ -1,4 +1,4 @@
-- name: Show Shutdown VMs
+- name: Show Stuff
   debug:
     msg: "{{ confirmed_shutdown }}"
 

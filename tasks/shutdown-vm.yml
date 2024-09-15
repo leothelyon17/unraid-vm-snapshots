@@ -3,6 +3,7 @@
 
   - name: Shutdown VM - {{ item }}
     command: virsh shutdown {{ item }}
+    ignore_errors: true
 
   - name: Get VM status - {{ item }}
     shell: virsh list --all | grep {{ item }} | awk '{ print $3}'
@@ -10,3 +11,6 @@
     retries: 5
     delay: 10
     until: cmd_res.stdout != 'running'
+
+  delegate_to: unraid
+  tags: always
