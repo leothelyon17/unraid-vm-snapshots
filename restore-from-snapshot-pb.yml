@@ -63,7 +63,7 @@
       set_fact: 
         file_list: "{{ found_files.files | map(attribute='path') | map('regex_replace','^.*/(.*)$','\\1') | list }}"
 
-    - name: Stitch together full snapshot name
+    - name: Stitch together full snapshot name. Replace dashes and remove special characters
       set_fact: 
         full_snapshot_name: "{{ disk_name[:-4] }}.{{ snapshot_to_restore_from | regex_replace('\\-', '_') | regex_replace('\\W', '') }}.img"
 

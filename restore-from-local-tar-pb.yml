@@ -68,7 +68,7 @@
       set_fact: 
         file_list: "{{ matched_tar_files | map(attribute='path') | map('regex_replace','^.*/(.*)$','\\1') | list }}"
 
-    - name: Stitch together full snapshot name
+    - name: Stitch together full snapshot name. Replace dashes and remove special characters
       set_fact: 
         full_snapshot_name: "{{ disk_name[:-4] }}.{{ snapshot_to_restore_from | regex_replace('\\-', '_') | regex_replace('\\W', '') }}.img"
 
@@ -97,10 +97,6 @@
         fail_msg: "The snapshot to restore was not found. May not exist or user date was entered incorrectly."
         success_msg: "Snapshot found! Will begin restore process NOW."
 
-    - name: Show Stuff
-      debug:
-        msg: "{{ found_snapshot }}"
-
     - name: Unzip .tar file
       command: tar -xf {{ found_snapshot }}
       args:
@@ -121,7 +117,7 @@
       register: file2
       delegate_to: unraid
 
-    - name: Ensure original and tranferred file sizes are the same
+    - name: Ensure original and unzipped .img file sizes are the same
       assert:
         that:
           - file1.stat.size == file2.stat.size

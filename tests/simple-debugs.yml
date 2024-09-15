@@ -1,11 +1,3 @@
 - name: Show Stuff
   debug:
     msg: "{{ confirmed_shutdown }}"
-
-- name: Show needed to  be shutdown VMs
-  debug:
-    msg: "{{ needs_shutdown }}"
-
-- name: Show result for VM status
-  debug:
-    var: cmd_res.results
