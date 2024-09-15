@@ -20,3 +20,4 @@
       success_msg: "{{ item.vm_name }} has successfully started. Restore from snapshot complete."
 
   delegate_to: unraid
+  tags: always

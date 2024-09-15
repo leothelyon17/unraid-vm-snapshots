@@ -47,21 +47,26 @@
 
     - name: Find files in the VM folder containing the target VM disk name
       find:
-        paths: "/{{ snapshot_repository_base_directory | regex_replace('\\\\', '')}}/{{ vm_name }}/"
+        paths: "/{{ source_directory | regex_replace('\\\\', '')}}/{{ vm_name }}/"
         patterns: "*{{ disk_name[:-4] }}*"
         recurse: yes
       register: found_files 
-      delegate_to: diskstation
+      delegate_to: unraid
+
+    - name: Filter files matching patterns for .tar files
+      set_fact:
+        matched_tar_files: "{{ found_files.files | selectattr('path', 'search', '.*\\.(tar)$') | list }}"
+
 
     - name: Ensure that files were found
       assert:
         that:
-          - found_files.matched > 0
+          - matched_tar_files | length > 0
         fail_msg: "No files found matching disk {{ disk_name[:-4] }} for VM {{ vm_name }}."
 
     - name: Create a file list from the target VM folder with only file names
       set_fact: 
-        file_list: "{{ found_files.files | map(attribute='path') | map('regex_replace','^.*/(.*)$','\\1') | list }}"
+        file_list: "{{ matched_tar_files | map(attribute='path') | map('regex_replace','^.*/(.*)$','\\1') | list }}"
 
     - name: Stitch together full snapshot name
       set_fact: 
@@ -77,7 +82,7 @@
         
         - name: Sort found files by modification time (newest first) - LATEST Block
           set_fact:
-            sorted_files: "{{ found_files.files | sort(attribute='mtime', reverse=True) | map(attribute='path') | map('regex_replace','^.*/(.*)$','\\1') | list  }}"
+            sorted_files: "{{ matched_tar_files | sort(attribute='mtime', reverse=True) | map(attribute='path') | map('regex_replace','^.*/(.*)$','\\1') | list  }}"
 
         - name: Find and set correct snapshot for newest found .img file - LATEST Block
           set_fact: 
@@ -92,22 +97,26 @@
         fail_msg: "The snapshot to restore was not found. May not exist or user date was entered incorrectly."
         success_msg: "Snapshot found! Will begin restore process NOW."
 
-    - name: Transfer snapshots to VM hypervisor server via rsync
-      command: rsync {{ repository_user }}@{{ hostvars['diskstation']['ansible_host'] }}:/{{ snapshot_repository_base_directory }}/{{ vm_name }}/{{ found_snapshot }} {{ found_snapshot }}
+    - name: Show Stuff
+      debug:
+        msg: "{{ found_snapshot }}"
+
+    - name: Unzip .tar file
+      command: tar -xf {{ found_snapshot }}
       args:
         chdir: "{{ source_directory }}/{{ vm_name }}"
       delegate_to: unraid
 
-    - name: Get attributes of original stored snapshot .img file
+    - name: Get attributes of unzipped .img file
       stat:
-        path: "/{{ snapshot_repository_base_directory | regex_replace('\\\\', '')}}/{{ vm_name }}/{{ found_snapshot }}"
+        path: "{{ source_directory }}/{{ vm_name }}/{{ found_snapshot[:-4] }}"
         get_checksum: false
       register: file1
-      delegate_to: diskstation
+      delegate_to: unraid
 
-    - name: Get attributes of newly transfered snapshot .img file
+    - name: Get attributes of original disk .img file
       stat:
-        path: "{{ source_directory }}/{{ vm_name }}/{{ found_snapshot }}"
+        path: "{{ source_directory }}/{{ vm_name }}/{{ disk_name }}"
         get_checksum: false
       register: file2
       delegate_to: unraid
@@ -129,8 +138,8 @@
         state: absent
       delegate_to: unraid
 
-    - name: Transfer snapshots to VM hypervisor server via rsync
-      command: mv {{ found_snapshot }} {{ disk_name }}
+    - name: Rename unzipped snapshot to proper disk name
+      command: mv {{ found_snapshot[:-4] }} {{ disk_name }}
       args:
         chdir: "{{ source_directory }}/{{ vm_name }}"
       delegate_to: unraid

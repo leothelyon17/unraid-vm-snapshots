@@ -13,3 +13,4 @@
     until: cmd_res.stdout != 'running'
 
   delegate_to: unraid
+  tags: always
