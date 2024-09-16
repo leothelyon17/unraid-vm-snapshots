@@ -106,10 +106,7 @@
           command: tar cf {{ snapshot_filename }}.tar {{ snapshot_filename }}
           args:
             chdir: "{{ source_directory }}/{{ vm_name }}"
-          when: check_reflink_hd.stat.exists
-          tags: 
-            - use_local
-            - never
+          when: check_reflink_hd.stat.exists and 'use_local' in ansible_run_tags
           delegate_to: unraid
 
         - name: Delete reflink file
