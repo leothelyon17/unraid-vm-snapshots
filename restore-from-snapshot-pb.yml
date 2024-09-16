@@ -129,7 +129,7 @@
         state: absent
       delegate_to: unraid
 
-    - name: Transfer snapshots to VM hypervisor server via rsync
+    - name: Rename snapshot to proper disk name
       command: mv {{ found_snapshot }} {{ disk_name }}
       args:
         chdir: "{{ source_directory }}/{{ vm_name }}"

@@ -37,7 +37,7 @@
       loop: "{{ snapshot_data_map }}"
 
 
-- name: Disk Restore From Snapshot
+- name: Disk Restore From TAR file
   hosts: disks
   gather_facts: no
   vars_files:

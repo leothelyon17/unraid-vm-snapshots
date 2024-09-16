@@ -1,4 +1,4 @@
-- name: Unraid Snapshot Creation Prep
+- name: Unraid Snapshot Creation Preperation
   hosts: unraid
   gather_facts: yes
   vars:
@@ -82,10 +82,6 @@
           delegate_to: unraid
           when: desired_snapshot_name is not defined or desired_snapshot_name | length == 0
 
-        - name: Show file name
-          debug:
-            msg: "{{ snapshot_filename }}"
-
         - name: Create reflink for {{ vm_name }}
           command: cp --reflink -rf {{ disk_name }} {{ snapshot_filename }}
           args:
@@ -121,7 +117,7 @@
           when: check_reflink_hd.stat.exists
           delegate_to: unraid
 
-        - name: Start VM following snapshot transfer
+        - name: Start VM following successful snapshot creation
           command: virsh start {{ vm_name }}
           tags: always
           delegate_to: unraid
